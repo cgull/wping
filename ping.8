@@ -30,7 +30,7 @@
 .\" SUCH DAMAGE.
 .\"
 .\"     @(#)ping.8	8.2 (Berkeley) 12/11/93
-.\" $FreeBSD$
+.\" $FreeBSD: src/sbin/ping/ping.8,v 1.25 2000/03/01 11:27:30 sheldonh Exp $
 .\"
 .Dd March 1, 1997
 .Dt PING 8
@@ -51,6 +51,7 @@ packets to network hosts
 .Op Fl s Ar packetsize
 .Op Fl S Ar src_addr
 .Op Fl t Ar timeout
+.Op Fl W Ar windowsize
 .Bo
 .Ar host |
 .Op Fl L
@@ -79,9 +80,11 @@ and then an arbitrary number of
 bytes used to fill out the packet.  The options are as follows:
 .Bl -tag -width indent
 .It Fl a
-Audible. Include a bell
+Audible.
+Include a bell
 .Pq ASCII 0x07
-character in the output when any packet is received. This option is ignored
+character in the output when any packet is received.
+This option is ignored
 if other format options are present.
 .It Fl c Ar count
 Stop after sending
@@ -232,6 +235,15 @@ Verbose output.
 packets other than
 .Tn ECHO_RESPONSE
 that are received are listed.
+.It Fl W Ar windowsize
+Windowing ping.  This option keeps multiple pings in transit by only
+waiting to transmit when no reply for a packet whose sequence number
+is less than or equal to
+.Ar windowsize 
+below the last transmitted packet's number has been received.  This
+option can be used to generate asynchronous traffic and to consume
+available bandwidth on a link.  Only the super-user may use this
+option.
 .El
 .Pp
 When using

@@ -45,7 +45,7 @@ static const char copyright[] =
 static char sccsid[] = "@(#)ping.c	8.1 (Berkeley) 6/5/93";
 #endif
 static const char rcsid[] =
-  "$FreeBSD$";
+  "$FreeBSD: src/sbin/ping/ping.c,v 1.52.2.1 2000/03/28 18:04:16 shin Exp $";
 #endif /* not lint */
 
 /*
@@ -113,6 +113,16 @@ static const char rcsid[] =
 #define	CLR(bit)	(A(bit) &= (~B(bit)))
 #define	TST(bit)	(A(bit) & B(bit))
 
+/*
+ * ICMP sequence numbers are 16 bit integers operated
+ * on with modular arithmetic.  These macros can be
+ * used to compare such integers.
+ */
+#define	SEQ_LT(a,b)	((int16_t)((a)-(b)) < 0)
+#define	SEQ_LEQ(a,b)	((int16_t)((a)-(b)) <= 0)
+#define	SEQ_GT(a,b)	((int16_t)((a)-(b)) > 0)
+#define	SEQ_GEQ(a,b)	((int16_t)((a)-(b)) >= 0)
+
 /* various options */
 int options;
 #define	F_FLOOD		0x0001
@@ -160,6 +170,8 @@ long npackets;			/* max packets to transmit */
 long nreceived;			/* # of packets we got back */
 long nrepeats;			/* number of duplicates */
 long ntransmitted;		/* sequence # for outbound packets = #sent */
+n_short receivedseq;		/* highest sequence # seen on inbound packet */
+n_short window;			/* window size in packets for streaming ping */
 int interval = 1000;		/* interval between packets, ms */
 
 /* timing */
@@ -213,7 +225,7 @@ main(argc, argv)
 	struct iovec iov;
 	struct msghdr msg;
 	struct sockaddr_in from;
-	char ctrl[sizeof(struct cmsghdr) + sizeof(struct timeval)];
+	char ctrl[CMSG_SPACE(sizeof(struct timeval))];
 #ifdef IPSEC_POLICY_IPSEC
 	char *policy_in = NULL;
 	char *policy_out = NULL;
@@ -231,14 +243,16 @@ main(argc, argv)
 	setuid(getuid());
 	uid = getuid();
 
-	alarmtimeout = preload = 0;
+	alarmtimeout = preload = window = 0;
 
 	datap = &outpack[8 + PHDR_LEN];
 #ifndef IPSEC
-	while ((ch = getopt(argc, argv, "I:LQRT:c:adfi:l:np:qrs:t:v")) != -1)
+	while ((ch = 
+		getopt(argc, argv, "I:LQRS:T:c:adfi:l:np:qrs:t:vW:")) != -1)
 #else
 #ifdef IPSEC_POLICY_IPSEC
-	while ((ch = getopt(argc, argv, "I:LQRT:c:adfi:l:np:qrs:t:vP:")) != -1)
+	while ((ch = 
+		getopt(argc, argv, "I:LQRS:T:c:adfi:l:np:qrs:t:vW:P:")) != -1)
 #endif /*IPSEC_POLICY_IPSEC*/
 #endif
 	{
@@ -362,6 +376,17 @@ main(argc, argv)
 			break;
 		case 'v':
 			options |= F_VERBOSE;
+			break;
+		case 'W':
+			ultmp = strtoul(optarg, &ep, 0);
+			if (*ep || ep == optarg || ultmp > SHRT_MAX)
+				errx(EX_USAGE, 
+				     "invalid window value: `%s'", optarg);
+			if (uid) {
+				errno = EPERM;
+				err(EX_NOPERM, "-w flag");
+			}
+			window = ultmp;
 			break;
 #ifdef IPSEC
 #ifdef IPSEC_POLICY_IPSEC
@@ -619,6 +644,12 @@ main(argc, argv)
 		(void)gettimeofday(&now, NULL);
 		timeout.tv_sec = last.tv_sec + intvl.tv_sec - now.tv_sec;
 		timeout.tv_usec = last.tv_usec + intvl.tv_usec - now.tv_usec;
+		if (!almost_done && window && 
+		    SEQ_GEQ(receivedseq, (int16_t)ntransmitted - window))
+		{
+			timeout.tv_usec = 0;
+			timeout.tv_sec = 0;
+		}
 		while (timeout.tv_usec < 0) {
 			timeout.tv_usec += 1000000;
 			timeout.tv_sec--;
@@ -649,7 +680,7 @@ main(argc, argv)
 #ifdef SO_TIMESTAMP
 			if (cmsg->cmsg_level == SOL_SOCKET &&
 			    cmsg->cmsg_type == SCM_TIMESTAMP &&
-			    cmsg->cmsg_len == (sizeof *cmsg + sizeof *t)) {
+			    cmsg->cmsg_len == CMSG_LEN(sizeof *t)) {
 				/* Copy to avoid alignment problems: */
 				memcpy(&now,CMSG_DATA(cmsg),sizeof(now));
 				t = &now;
@@ -822,6 +853,11 @@ pr_pack(buf, cc, from, tv)
 		} else {
 			SET(icp->icmp_seq % mx_dup_ck);
 			dupflag = 0;
+		}
+
+		if (window) {
+			if SEQ_GT(icp->icmp_seq, (int16_t)receivedseq)
+				receivedseq = icp->icmp_seq;
 		}
 
 		if (options & F_QUIET)
@@ -1409,7 +1445,7 @@ usage()
 "[-P policy] "
 #endif
 #endif
-"[-s packetsize] [-S src_addr] [-t timeout]",
+"[-s packetsize] [-S src_addr] [-t timeout] [-W window]",
 "            [host | [-L] [-I iface] [-T ttl] mcast-group]");
 	exit(EX_USAGE);
 }
