@@ -89,7 +89,9 @@ static const char rcsid[] =
 #include <netinet/in_systm.h>
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
+#ifndef linux
 #include <netinet/ip_var.h>
+#endif
 #include <arpa/inet.h>
 
 #ifdef IPSEC
@@ -188,7 +190,7 @@ volatile sig_atomic_t siginfo_p;
 static void fill(char *, char *);
 static u_short in_cksum(u_short *, int);
 static void check_status(void);
-static void finish(void) __dead2;
+static void finish(void);
 static void pinger(void);
 static char *pr_addr(struct in_addr);
 static void pr_icmph(struct icmp *);
@@ -198,7 +200,7 @@ static void pr_retip(struct ip *);
 static void status(int);
 static void stopit(int);
 static void tvsub(struct timeval *, struct timeval *);
-static void usage(void) __dead2;
+static void usage(void);
 
 int
 main(argc, argv)
@@ -421,7 +423,9 @@ main(argc, argv)
 				errx(EX_NOHOST, "cannot resolve %s: %s",
 				     source, hstrerror(h_errno));
 
+#ifndef linux
 			sin.sin_len = sizeof sin;
+#endif
 			if (hp->h_length > sizeof(sin.sin_addr))
 				errx(1,"gethostbyname2: illegal address");
 			memcpy(&sin.sin_addr, hp->h_addr_list[0], 
@@ -446,7 +450,9 @@ main(argc, argv)
 			errx(EX_NOHOST, "cannot resolve %s: %s",
 			     target, hstrerror(h_errno));
 
+#ifndef linux
 		to->sin_len = sizeof *to;
+#endif
 		if (hp->h_length > sizeof(to->sin_addr))
 			errx(1,"gethostbyname2 returned an illegal address");
 		memcpy(&to->sin_addr, hp->h_addr_list[0], sizeof to->sin_addr);
@@ -590,7 +596,9 @@ main(argc, argv)
 	if (sigaction(SIGINT, &si_sa, 0) == -1) {
 		err(EX_OSERR, "sigaction SIGINT");
 	}
-
+#ifndef SIGINFO
+#define SIGINFO SIGQUIT
+#endif
 	si_sa.sa_handler = status;
 	if (sigaction(SIGINFO, &si_sa, 0) == -1) {
 		err(EX_OSERR, "sigaction");
@@ -612,11 +620,13 @@ main(argc, argv)
 	iov.iov_base = packet;
 	iov.iov_len = packlen;
 
+#ifdef NOKERNINFO
 	if (tcgetattr(STDOUT_FILENO, &ts) != -1) {
 		reset_kerninfo = !(ts.c_lflag & NOKERNINFO);
 		ts.c_lflag |= NOKERNINFO;
 		tcsetattr(STDOUT_FILENO, TCSANOW, &ts);
 	}
+#endif
 
 	while (preload--)		/* fire off them quickies */
 		pinger();
@@ -1150,10 +1160,12 @@ finish()
 		       "%.3f/%.3f/%.3f/%.3f ms\n",
 		    tmin, avg, tmax, sqrt(vari));
 	}
+#ifdef NOKERNINFO
 	if (reset_kerninfo && tcgetattr(STDOUT_FILENO, &ts) != -1) {
 		ts.c_lflag &= ~NOKERNINFO;
 		tcsetattr(STDOUT_FILENO, TCSANOW, &ts);
 	}
+#endif
 
 	if (nreceived)
 		exit(0);
