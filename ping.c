@@ -93,7 +93,7 @@ static const char rcsid[] =
 #include <arpa/inet.h>
 
 #ifdef IPSEC
-#include <netinet6/ipsec.h>
+#include <netipsec/ipsec.h>
 #endif /*IPSEC*/
 
 #define	PHDR_LEN	sizeof(struct timeval)
